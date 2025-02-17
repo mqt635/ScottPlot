@@ -1,224 +1,87 @@
-﻿using ScottPlot.Control;
-using ScottPlot.Extensions;
+using SkiaSharp;
 using SkiaSharp.Views.Desktop;
-using System;
 using System.ComponentModel;
-using System.Diagnostics;
-using System.IO;
+using System.Drawing;
 using System.Windows.Forms;
 
 namespace ScottPlot.WinForms;
 
-public class FormsPlot : UserControl, IPlotControl
+[ToolboxItem(true)]
+public class FormsPlot : FormsPlotBase
 {
-    readonly SKGLControl SKElement;
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    [Browsable(false)]
+    public TransparentSKControl? SKControl { get; private set; }
 
-    public Plot Plot { get; private set; }
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    [Browsable(false)]
+    public override GRContext GRContext => null!;
 
-    public Interaction Interaction { get; private set; }
-
-    public FormsPlot()
+    public FormsPlot() : base()
     {
-        Interaction = new(this)
+        if (IsDesignerAlternative)
         {
-            ContextMenuItems = GetDefaultContextMenuItems()
-        };
-
-        SKElement = new() { Dock = DockStyle.Fill, VSync = true };
-        SKElement.PaintSurface += SKControl_PaintSurface;
-        SKElement.MouseDown += SKElement_MouseDown;
-        SKElement.MouseUp += SKElement_MouseUp;
-        SKElement.MouseMove += SKElement_MouseMove;
-        SKElement.DoubleClick += SKElement_DoubleClick;
-        SKElement.MouseWheel += SKElement_MouseWheel;
-        SKElement.KeyDown += SKElement_KeyDown;
-        SKElement.KeyUp += SKElement_KeyUp;
-
-        Controls.Add(SKElement);
-
-        HandleDestroyed += (s, e) => SKElement.Dispose();
-
-        Plot = Reset();
-
-        // TODO: replace this with an annotation instead of title
-        bool isDesignMode = Process.GetCurrentProcess().ProcessName == "devenv";
-        Plot.Title.Label.Text = isDesignMode
-            ? $"ScottPlot {Version.VersionString}"
-            : string.Empty;
-    }
-
-    private ContextMenuItem[] GetDefaultContextMenuItems()
-    {
-        ContextMenuItem saveImage = new()
-        {
-            Label = "Save Image",
-            OnInvoke = OpenSaveImageDialog
-        };
-
-        ContextMenuItem copyImage = new()
-        {
-            Label = "Copy to Clipboard",
-            OnInvoke = () => { CopyImageToClipboard(Width, Height); }
-        };
-
-        return new ContextMenuItem[] { saveImage, copyImage };
-    }
-
-    // ContextMenu isn't available on net6-windows, ContextMenuStrip is the more modern replacement
-    private ContextMenuStrip GetContextMenu()
-    {
-        ContextMenuStrip menu = new();
-        foreach (var curr in Interaction.ContextMenuItems)
-        {
-            var menuItem = new ToolStripMenuItem(curr.Label);
-            menuItem.Click += (s, e) => curr.OnInvoke();
-
-            menu.Items.Add(menuItem);
+            return;
         }
 
-        return menu;
+        HandleCreated += (s, e) => SetupSKControl();
+        HandleDestroyed += (s, e) => TeardownSKControl();
+        SetupSKControl();
+        Plot.FigureBackground.Color = Color.FromColor(SystemColors.Control);
+        Plot.DataBackground.Color = Colors.White;
     }
 
-    // make it so changing the background color of the control changes background color of the plot too
-    public override System.Drawing.Color BackColor
+    private void SetupSKControl()
     {
-        get => base.BackColor;
-        set
-        {
-            base.BackColor = value;
-            if (Plot is not null)
-                Plot.FigureBackground = value.ToColor();
-        }
-    }
+        TeardownSKControl();
 
-    public Plot Reset()
-    {
-        Plot newPlot = new()
+        SKControl = new()
         {
-            FigureBackground = this.BackColor.ToColor(),
+            Dock = DockStyle.Fill,
         };
+        SKControl.PaintSurface += SKElement_PaintSurface;
+        SKControl.MouseDown += SKElement_MouseDown;
+        SKControl.MouseUp += SKElement_MouseUp;
+        SKControl.MouseMove += SKElement_MouseMove;
+        SKControl.DoubleClick += SKElement_DoubleClick;
+        SKControl.MouseWheel += SKElement_MouseWheel;
+        SKControl.KeyDown += SKElement_KeyDown;
+        SKControl.PreviewKeyDown += SKControl_PreviewKeyDown;
+        SKControl.KeyUp += SKElement_KeyUp;
+        SKControl.LostFocus += SKElement_LostFocus;
 
-        return Reset(newPlot);
+        Controls.Add(SKControl);
     }
 
-    public Plot Reset(Plot newPlot)
+    private void TeardownSKControl()
     {
-        Plot oldPlot = Plot;
-        Plot = newPlot;
-        oldPlot?.Dispose();
-        return newPlot;
+        if (SKControl is null)
+            return;
+
+        SKControl.PaintSurface -= SKElement_PaintSurface;
+        SKControl.MouseDown -= SKElement_MouseDown;
+        SKControl.MouseUp -= SKElement_MouseUp;
+        SKControl.MouseMove -= SKElement_MouseMove;
+        SKControl.DoubleClick -= SKElement_DoubleClick;
+        SKControl.MouseWheel -= SKElement_MouseWheel;
+        SKControl.KeyDown -= SKElement_KeyDown;
+        SKControl.KeyUp -= SKElement_KeyUp;
+        SKControl.LostFocus -= SKElement_LostFocus;
+
+        Controls.Remove(SKControl);
+
+        if (!SKControl.IsDisposed)
+            SKControl.Dispose();
     }
 
-    public void Replace(Interaction interaction)
+    private void SKElement_PaintSurface(object? sender, SKPaintSurfaceEventArgs e)
     {
-        Interaction = interaction;
+        Multiplot.Render(e.Surface);
     }
 
     public override void Refresh()
     {
-        SKElement.Invalidate();
+        SKControl?.Invalidate();
         base.Refresh();
-    }
-
-    public void ShowContextMenu(Pixel position)
-    {
-        var menu = GetContextMenu();
-        menu.Show(this, new System.Drawing.Point((int)position.X, (int)position.Y));
-    }
-
-    private void SKControl_PaintSurface(object? sender, SKPaintGLSurfaceEventArgs e)
-    {
-        Plot.Render(e.Surface);
-    }
-
-    private void SKElement_MouseDown(object? sender, MouseEventArgs e)
-    {
-        Interaction.MouseDown(e.Pixel(), e.Button());
-        base.OnMouseDown(e);
-    }
-
-    private void SKElement_MouseUp(object? sender, MouseEventArgs e)
-    {
-        Interaction.MouseUp(e.Pixel(), e.Button());
-        base.OnMouseUp(e);
-    }
-
-    private void SKElement_MouseMove(object? sender, MouseEventArgs e)
-    {
-        Interaction.OnMouseMove(e.Pixel());
-        base.OnMouseMove(e);
-    }
-
-    private void SKElement_DoubleClick(object? sender, EventArgs e)
-    {
-        Interaction.DoubleClick();
-        base.OnDoubleClick(e);
-    }
-
-    private void SKElement_MouseWheel(object? sender, MouseEventArgs e)
-    {
-        Interaction.MouseWheelVertical(e.Pixel(), e.Delta);
-        base.OnMouseWheel(e);
-    }
-
-    private void SKElement_KeyDown(object? sender, KeyEventArgs e)
-    {
-        Interaction.KeyDown(e.Key());
-        base.OnKeyDown(e);
-    }
-
-    private void SKElement_KeyUp(object? sender, KeyEventArgs e)
-    {
-        Interaction.KeyUp(e.Key());
-        base.OnKeyUp(e);
-    }
-
-    private void OpenSaveImageDialog()
-    {
-        SaveFileDialog dialog = new()
-        {
-            FileName = Interaction.DefaultSaveImageFilename,
-            Filter = "PNG Files (*.png)|*.png" +
-                     "|JPEG Files (*.jpg, *.jpeg)|*.jpg;*.jpeg" +
-                     "|BMP Files (*.bmp)|*.bmp" +
-                     "|WebP Files (*.webp)|*.webp" +
-                     "|All files (*.*)|*.*"
-        };
-
-        if (dialog.ShowDialog() == DialogResult.OK)
-        {
-            if (string.IsNullOrEmpty(dialog.FileName))
-                return;
-
-            ImageFormat format;
-
-            try
-            {
-                format = ImageFormatLookup.FromFilePath(dialog.FileName);
-            }
-            catch (ArgumentException)
-            {
-                MessageBox.Show("Unsupported image file format", "ERROR", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            try
-            {
-                Plot.Save(dialog.FileName, Width, Height, format);
-            }
-            catch (Exception)
-            {
-                MessageBox.Show("Image save failed", "ERROR", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-        }
-    }
-
-    private void CopyImageToClipboard(int width, int height)
-    {
-        byte[] bytes = Plot.GetImage(width, height).GetImageBytes();
-        using MemoryStream ms = new(bytes);
-        using var bmp = new System.Drawing.Bitmap(ms);
-        Clipboard.SetImage(bmp);
     }
 }

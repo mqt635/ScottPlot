@@ -1,4 +1,4 @@
-﻿namespace WinForms_Demo.Demos;
+namespace WinForms_Demo.Demos;
 
 public partial class HeatmapLive : Form, IDemoWindow
 {
@@ -18,7 +18,7 @@ public partial class HeatmapLive : Form, IDemoWindow
 
         HeatmapData = ScottPlot.Generate.Sin2D(23, 13, multiple: 3);
         HMap = new ScottPlot.Plottables.Heatmap(HeatmapData);
-        formsPlot1.Plot.Plottables.Add(HMap);
+        formsPlot1.Plot.PlottableList.Add(HMap);
 
         Timer = new() { Enabled = true, Interval = 100 };
         Timer.Tick += (s, e) => ChangeData();

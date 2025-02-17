@@ -1,7 +1,5 @@
-﻿using System.Windows;
+using System.Windows;
 using ScottPlot;
-
-#pragma warning disable CA1416 // Validate platform compatibility
 
 namespace Sandbox.WPF;
 
@@ -11,7 +9,14 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        WpfPlot.Plot.Add.Signal(Generate.Sin(51));
-        WpfPlot.Plot.Add.Signal(Generate.Cos(51));
+        WpfPlot1.Plot.Add.Signal(Generate.Sin());
+        WpfPlot1.Plot.Add.Signal(Generate.Cos());
+    }
+
+    private void Button_Click(object sender, RoutedEventArgs e)
+    {
+        WpfPlot1.Reset();
+        WpfPlot1.Plot.Add.Signal(Generate.RandomWalk(100));
+        WpfPlot1.Refresh();
     }
 }
